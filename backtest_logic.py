@@ -69,8 +69,8 @@ def detectar_invert50_venda(df, mme_curta=9, mme_media=20, mme_longa=50, mme_ger
     resultado.rename(columns={'datetime': 'data'}, inplace=True)
     return resultado[['data', 'entrada', 'stop', 'alvo']].round(2)
 
-def detectar_power_breakout_compra(df, mme_curta=9, mme_media=20, mme_longa=50, mme_geral=200, tolerancia_toque=0.01):
-    """NOVA FUNÇÃO: Detecta o padrão POWER BREAKOUT (COMPRA)"""
+def detectar_invert50_compra(df, mme_curta=9, mme_media=20, mme_longa=50, mme_geral=200, tolerancia_toque=0.01):
+    """CORRIGIDO: Detecta o padrão INVERT 50 (COMPRA)"""
     df_copy = df.copy()
     df_copy[f'MME{mme_curta}'] = df_copy['close'].ewm(span=mme_curta, adjust=False).mean()
     df_copy[f'MME{mme_media}'] = df_copy['close'].ewm(span=mme_media, adjust=False).mean()
@@ -79,8 +79,11 @@ def detectar_power_breakout_compra(df, mme_curta=9, mme_media=20, mme_longa=50, 
 
     tolerancia_toque_valor = df_copy[f'MME{mme_longa}'] * tolerancia_toque
 
+    # Lógica inversa para compra: MME9 > MME20 > MME50
     df_copy['alinhadas'] = (df_copy[f'MME{mme_curta}'] > df_copy[f'MME{mme_media}']) & (df_copy[f'MME{mme_media}'] > df_copy[f'MME{mme_longa}'])
+    # Toca na MME50 por cima
     df_copy['tocou_longa'] = abs(df_copy['high'] - df_copy[f'MME{mme_longa}']) <= tolerancia_toque_valor
+    # Candle de força comprador
     df_copy['candle_forte'] = (df_copy['close'].shift(-1) > df_copy[f'MME{mme_media}'].shift(-1)) & (df_copy['close'].shift(-1) > df_copy['open'].shift(-1))
     df_copy['sinal_valido'] = df_copy['alinhadas'] & df_copy['tocou_longa'] & df_copy['candle_forte']
 
@@ -88,9 +91,10 @@ def detectar_power_breakout_compra(df, mme_curta=9, mme_media=20, mme_longa=50, 
     if sinais_df.empty: return pd.DataFrame()
 
     sinais_df['entrada'] = df_copy.loc[sinais_df.index, 'close'].shift(-1)
-    sinais_df['stop'] = df_copy.loc[sinais_df.index, 'low'].shift(-1)
+    sinais_df['stop'] = df_copy.loc[sinais_df.index, 'low'].shift(-1) # Stop na mínima
     mme_geral_entrada = df_copy.loc[sinais_df.index, f'MME{mme_geral}'].shift(-1)
-    sinais_df['alvo'] = np.where(mme_geral_entrada < sinais_df['entrada'], mme_geral_entrada, sinais_df['entrada'] + 2 * (sinais_df['entrada'] - sinais_df['stop']))
+    # Alvo é a MME200 (se estiver acima) ou 2x o risco
+    sinais_df['alvo'] = np.where(mme_geral_entrada > sinais_df['entrada'], mme_geral_entrada, sinais_df['entrada'] + 2 * (sinais_df['entrada'] - sinais_df['stop']))
     
     resultado = sinais_df[['entrada', 'stop', 'alvo']].dropna().copy()
     resultado.reset_index(inplace=True)
@@ -128,7 +132,7 @@ def rodar_backtest(df_historico, ativo, lotes, valor_por_ponto, estrategia):
     if estrategia == 'venda':
         sinais = detectar_invert50_venda(df_historico)
     elif estrategia == 'compra':
-        sinais = detectar_power_breakout_compra(df_historico)
+        sinais = detectar_invert50_compra(df_historico) # CORRIGIDO
     else:
         return None
 
@@ -146,3 +150,4 @@ def rodar_backtest(df_historico, ativo, lotes, valor_por_ponto, estrategia):
     
     print("--- Backtest Concluído ---")
     return resultados_df.round(2)
+
