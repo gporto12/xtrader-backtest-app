@@ -1,0 +1,7 @@
+Flask
+Flask-Cors
+pandas
+numpy
+requests
+gunicorn
+apscheduler
