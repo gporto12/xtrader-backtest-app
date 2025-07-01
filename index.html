@@ -56,11 +56,11 @@
                     <label for="ativo" class="block text-sm font-medium text-gray-300 mb-2">Ativo (Ação dos EUA)</label>
                     <input type="text" id="ativo" value="AAPL" class="w-full bg-gray-700 border-gray-600 rounded-md p-2.5 text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                 </div>
-                <!-- NOVO CAMPO: Seletor de Estratégia -->
                 <div>
                     <label for="estrategia" class="block text-sm font-medium text-gray-300 mb-2">Tipo de Operação</label>
                     <select id="estrategia" class="w-full bg-gray-700 border-gray-600 rounded-md p-2.5 text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                        <option value="compra">Compra (Power Breakout)</option>
+                        <!-- CORRIGIDO -->
+                        <option value="compra">Compra (Invert 50)</option>
                         <option value="venda">Venda (Invert 50)</option>
                     </select>
                 </div>
@@ -172,7 +172,7 @@
 <script>
     // CORREÇÃO: Envolvemos todo o código em um 'DOMContentLoaded' listener.
     // Isso garante que o JavaScript só roda depois que todos os elementos HTML
-    // da página foram carregados, evitando o erro "cannot read properties of null".
+    // da página foram carregados, evitando erros de timing.
     document.addEventListener('DOMContentLoaded', () => {
     
         // --- State Variables ---
@@ -310,6 +310,8 @@
         
         function initializeEmptyChart() {
             if (chart) return;
+            const chartContainer = document.getElementById('chart-container');
+            if (!chartContainer) return;
             chart = LightweightCharts.createChart(chartContainer, {
                 width: chartContainer.clientWidth,
                 height: chartContainer.clientHeight,
@@ -324,8 +326,12 @@
         }
 
         function createOrUpdateChart(ohlcData, trades) {
-            chartPlaceholder.style.display = 'none';
+            const chartPlaceholder = document.getElementById('chart-placeholder');
+            if(chartPlaceholder) chartPlaceholder.style.display = 'none';
             
+            if (!chart) initializeEmptyChart();
+            if (!chart) return;
+
             chart.series().forEach(series => chart.removeSeries(series));
 
             const candleSeries = chart.addCandlestickSeries({
