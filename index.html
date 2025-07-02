@@ -173,7 +173,7 @@
     
         let currentBacktestData = null;
         let chart = null;
-        let candleSeries = null; // Manter referência da série principal
+        let candleSeries = null;
 
         const form = document.getElementById('backtest-form');
         const runBacktestBtn = document.getElementById('run-backtest-btn');
@@ -338,13 +338,12 @@
             }
             if (!chart) return;
 
-            // CORREÇÃO: Remove a série anterior se ela existir
             if (candleSeries) {
                 chart.removeSeries(candleSeries);
                 candleSeries = null;
             }
 
-            // CORREÇÃO: O nome correto da função é addCandlestickSeries
+            // CORREÇÃO FINAL E DEFINITIVA: O nome correto da função é addCandlestickSeries
             candleSeries = chart.addCandlestickSeries({
                 upColor: '#22C55E', downColor: '#EF4444', borderDownColor: '#EF4444',
                 borderUpColor: '#22C55E', wickDownColor: '#EF4444', wickUpColor: '#22C55E',
