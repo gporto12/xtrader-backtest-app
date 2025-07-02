@@ -52,7 +52,8 @@ def detectar_invert50_venda(df, mme_curta=9, mme_media=20, mme_longa=50, mme_ger
     tolerancia_toque_valor = df_copy[f'MME{mme_longa}'] * tolerancia_toque
     
     df_copy['alinhadas'] = (df_copy[f'MME{mme_longa}'] > df_copy[f'MME{mme_media}']) & (df_copy[f'MME{mme_media}'] > df_copy[f'MME{mme_curta}'])
-    df_copy['tocou_longa'] = abs(df_copy['low'] - df_copy[f'MME{mme_longa}']) <= tolerancia_toque_valor
+    # CORREÇÃO: Para venda, o preço sobe para tocar a MME. Verificamos a MÁXIMA (high).
+    df_copy['tocou_longa'] = abs(df_copy['high'] - df_copy[f'MME{mme_longa}']) <= tolerancia_toque_valor
     df_copy['candle_forte'] = (df_copy['close'].shift(-1) < df_copy[f'MME{mme_media}'].shift(-1)) & (df_copy['close'].shift(-1) < df_copy['open'].shift(-1))
     df_copy['sinal_valido'] = df_copy['alinhadas'] & df_copy['tocou_longa'] & df_copy['candle_forte']
     
@@ -70,7 +71,7 @@ def detectar_invert50_venda(df, mme_curta=9, mme_media=20, mme_longa=50, mme_ger
     return resultado[['data', 'entrada', 'stop', 'alvo']].round(2)
 
 def detectar_invert50_compra(df, mme_curta=9, mme_media=20, mme_longa=50, mme_geral=200, tolerancia_toque=0.01):
-    """CORRIGIDO: Detecta o padrão INVERT 50 (COMPRA)"""
+    """Detecta o padrão INVERT 50 (COMPRA)"""
     df_copy = df.copy()
     df_copy[f'MME{mme_curta}'] = df_copy['close'].ewm(span=mme_curta, adjust=False).mean()
     df_copy[f'MME{mme_media}'] = df_copy['close'].ewm(span=mme_media, adjust=False).mean()
@@ -79,11 +80,9 @@ def detectar_invert50_compra(df, mme_curta=9, mme_media=20, mme_longa=50, mme_ge
 
     tolerancia_toque_valor = df_copy[f'MME{mme_longa}'] * tolerancia_toque
 
-    # Lógica inversa para compra: MME9 > MME20 > MME50
     df_copy['alinhadas'] = (df_copy[f'MME{mme_curta}'] > df_copy[f'MME{mme_media}']) & (df_copy[f'MME{mme_media}'] > df_copy[f'MME{mme_longa}'])
-    # Toca na MME50 por cima
-    df_copy['tocou_longa'] = abs(df_copy['high'] - df_copy[f'MME{mme_longa}']) <= tolerancia_toque_valor
-    # Candle de força comprador
+    # CORREÇÃO: Para compra, o preço desce para tocar a MME. Verificamos a MÍNIMA (low).
+    df_copy['tocou_longa'] = abs(df_copy['low'] - df_copy[f'MME{mme_longa}']) <= tolerancia_toque_valor
     df_copy['candle_forte'] = (df_copy['close'].shift(-1) > df_copy[f'MME{mme_media}'].shift(-1)) & (df_copy['close'].shift(-1) > df_copy['open'].shift(-1))
     df_copy['sinal_valido'] = df_copy['alinhadas'] & df_copy['tocou_longa'] & df_copy['candle_forte']
 
@@ -91,9 +90,8 @@ def detectar_invert50_compra(df, mme_curta=9, mme_media=20, mme_longa=50, mme_ge
     if sinais_df.empty: return pd.DataFrame()
 
     sinais_df['entrada'] = df_copy.loc[sinais_df.index, 'close'].shift(-1)
-    sinais_df['stop'] = df_copy.loc[sinais_df.index, 'low'].shift(-1) # Stop na mínima
+    sinais_df['stop'] = df_copy.loc[sinais_df.index, 'low'].shift(-1)
     mme_geral_entrada = df_copy.loc[sinais_df.index, f'MME{mme_geral}'].shift(-1)
-    # Alvo é a MME200 (se estiver acima) ou 2x o risco
     sinais_df['alvo'] = np.where(mme_geral_entrada > sinais_df['entrada'], mme_geral_entrada, sinais_df['entrada'] + 2 * (sinais_df['entrada'] - sinais_df['stop']))
     
     resultado = sinais_df[['entrada', 'stop', 'alvo']].dropna().copy()
@@ -132,7 +130,7 @@ def rodar_backtest(df_historico, ativo, lotes, valor_por_ponto, estrategia):
     if estrategia == 'venda':
         sinais = detectar_invert50_venda(df_historico)
     elif estrategia == 'compra':
-        sinais = detectar_invert50_compra(df_historico) # CORRIGIDO
+        sinais = detectar_invert50_compra(df_historico)
     else:
         return None
 
@@ -150,4 +148,3 @@ def rodar_backtest(df_historico, ativo, lotes, valor_por_ponto, estrategia):
     
     print("--- Backtest Concluído ---")
     return resultados_df.round(2)
-
