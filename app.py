@@ -5,20 +5,55 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import pandas as pd
 
+# Importa as funções do nosso motor de backtest
 from backtest_logic import buscar_dados_api, rodar_backtest
 
+# Cria a aplicação Flask
 app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
 
+# Pega a chave da API das variáveis de ambiente do Render
 POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY', 'SUA_CHAVE_AQUI_PARA_TESTE_LOCAL')
 
-# ... (create_analysis_prompt e outras rotas permanecem iguais) ...
+def create_analysis_prompt(metricas, trades):
+    """Cria o prompt para a API Gemini com base nos resultados do backtest."""
+    trades_str = ""
+    for trade in trades[:10]:
+        trades_str += f"- Trade em {pd.to_datetime(trade['data_entrada']).strftime('%d/%m/%Y')}: {trade['resultado']}, P&L: $ {float(trade['pnl_financeiro']):.2f}\n"
+
+    prompt = f"""
+    Você é um analista de risco e estrategista de trading profissional. Sua tarefa é analisar os resultados de um backtest de uma estratégia de trading e fornecer um feedback conciso, profissional e útil em português do Brasil.
+
+    **Contexto da Estratégia:**
+    A estratégia testada é a "Invert 50", uma estratégia de compra/venda baseada em médias móveis exponenciais. A entrada ocorre em um pullback para a MME 50.
+
+    **Resultados do Backtest:**
+    - **Métricas Gerais:**
+        - Total de Operações: {metricas['totalOperacoes']}
+        - Taxa de Acerto: {metricas['taxaAcerto']}
+        - Lucro/Prejuízo Bruto Total: {metricas['lucroBrutoTotal']}
+        - Drawdown Máximo: {metricas['drawdownMaximo']}
+    - **Amostra de Trades:**
+    {trades_str}
+
+    **Sua Análise:**
+    Com base nos dados acima, forneça uma análise em 3 partes, usando Markdown simples:
+    1.  **### Diagnóstico Geral:** Faça um resumo do desempenho da estratégia.
+    2.  **### Pontos Fortes:** Identifique os aspectos positivos dos resultados.
+    3.  **### Pontos de Melhoria e Riscos:** Aponte as fraquezas e os riscos evidentes e sugira otimizações.
+
+    Seja direto, objetivo e use uma linguagem que um trader entenderia.
+    """
+    return prompt
+
 @app.route('/')
 def home():
+    """Serve a página principal do nosso site."""
     return send_from_directory('.', 'index.html')
 
 @app.route('/backtest', methods=['POST'])
 def handle_backtest_request():
+    """Endpoint da API que executa o backtest."""
     try:
         data = request.get_json()
         ativo = data.get('ativo')
@@ -26,16 +61,18 @@ def handle_backtest_request():
         data_fim = data.get('data_fim')
         lotes = int(data.get('lotes', 1))
         valor_ponto = float(data.get('valor_ponto', 1.0))
-        estrategia = data.get('estrategia', 'venda') # <-- NOVO: Pega a estratégia do frontend
+        estrategia = data.get('estrategia', 'venda')
 
         if not all([ativo, data_inicio, data_fim]):
             return jsonify({"error": "Parâmetros 'ativo', 'data_inicio' e 'data_fim' são obrigatórios."}), 400
 
-        dados_historicos = buscar_dados_api(ativo, 'day', data_inicio, data_fim, POLYGON_API_KEY)
+        # CORREÇÃO: O timeframe para dados diários na API da Polygon é 'day'.
+        timeframe = 'day'
+        dados_historicos = buscar_dados_api(ativo, timeframe, data_inicio, data_fim, POLYGON_API_KEY)
+        
         if dados_historicos is None or dados_historicos.empty:
             return jsonify({"error": "Não foi possível obter os dados históricos. Verifique o ticker do ativo e o período."}), 404
 
-        # Passa a estratégia escolhida para a função de backtest
         resultados_df = rodar_backtest(dados_historicos, ativo, lotes, valor_ponto, estrategia)
         
         if resultados_df is None or resultados_df.empty:
@@ -64,38 +101,6 @@ def handle_backtest_request():
     except Exception as e:
         print(f"Erro no servidor /backtest: {e}")
         return jsonify({"error": f"Ocorreu um erro interno no servidor: {e}"}), 500
-
-# ... (O resto do ficheiro, com a rota /analyze-results, permanece igual) ...
-def create_analysis_prompt(metricas, trades):
-    """Cria o prompt para a API Gemini com base nos resultados do backtest."""
-    trades_str = ""
-    for trade in trades[:10]:
-        trades_str += f"- Trade em {pd.to_datetime(trade['data_entrada']).strftime('%d/%m/%Y')}: {trade['resultado']}, P&L: $ {float(trade['pnl_financeiro']):.2f}\n"
-
-    prompt = f"""
-    Você é um analista de risco e estrategista de trading profissional. Sua tarefa é analisar os resultados de um backtest de uma estratégia de trading e fornecer um feedback conciso, profissional e útil em português do Brasil.
-
-    **Contexto da Estratégia:**
-    A estratégia testada é a "Invert 50", uma estratégia de venda baseada em médias móveis exponenciais. A entrada ocorre em um pullback para a MME 50 em uma tendência de baixa confirmada.
-
-    **Resultados do Backtest:**
-    - **Métricas Gerais:**
-        - Total de Operações: {metricas['totalOperacoes']}
-        - Taxa de Acerto: {metricas['taxaAcerto']}
-        - Lucro/Prejuízo Bruto Total: {metricas['lucroBrutoTotal']}
-        - Drawdown Máximo: {metricas['drawdownMaximo']}
-    - **Amostra de Trades:**
-    {trades_str}
-
-    **Sua Análise:**
-    Com base nos dados acima, forneça uma análise em 3 partes, usando Markdown simples:
-    1.  **### Diagnóstico Geral:** Faça um resumo do desempenho da estratégia.
-    2.  **### Pontos Fortes:** Identifique os aspectos positivos dos resultados.
-    3.  **### Pontos de Melhoria e Riscos:** Aponte as fraquezas e os riscos evidentes e sugira otimizações.
-
-    Seja direto, objetivo e use uma linguagem que um trader entenderia.
-    """
-    return prompt
 
 @app.route('/analyze-results', methods=['POST'])
 def analyze_results_with_gemini():
