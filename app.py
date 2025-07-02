@@ -1,6 +1,7 @@
 import os
 import requests
 import json
+import traceback # Importa a biblioteca para obter detalhes do erro
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import pandas as pd
@@ -56,6 +57,9 @@ def handle_backtest_request():
     """Endpoint da API que executa o backtest."""
     try:
         data = request.get_json()
+        if not data:
+            return jsonify({"error": "Pedido inválido. Corpo da requisição não é JSON."}), 400
+
         ativo = data.get('ativo')
         data_inicio = data.get('data_inicio')
         data_fim = data.get('data_fim')
@@ -66,7 +70,6 @@ def handle_backtest_request():
         if not all([ativo, data_inicio, data_fim]):
             return jsonify({"error": "Parâmetros 'ativo', 'data_inicio' e 'data_fim' são obrigatórios."}), 400
 
-        # CORREÇÃO: O timeframe para dados diários na API da Polygon é 'day'.
         timeframe = 'day'
         dados_historicos = buscar_dados_api(ativo, timeframe, data_inicio, data_fim, POLYGON_API_KEY)
         
@@ -99,8 +102,11 @@ def handle_backtest_request():
         return jsonify({"metricas": metricas, "trades": trades_detalhados, "historico_ohlc": historico_formatado})
 
     except Exception as e:
-        print(f"Erro no servidor /backtest: {e}")
-        return jsonify({"error": f"Ocorreu um erro interno no servidor: {e}"}), 500
+        # CORREÇÃO: Tratamento de erro mais robusto para garantir que sempre retornamos JSON.
+        error_trace = traceback.format_exc()
+        print(f"ERRO CRÍTICO NO ENDPOINT /backtest: {e}")
+        print(error_trace)
+        return jsonify({"error": f"Ocorreu um erro crítico no servidor. Por favor, verifique os logs para mais detalhes."}), 500
 
 @app.route('/analyze-results', methods=['POST'])
 def analyze_results_with_gemini():
@@ -121,8 +127,10 @@ def analyze_results_with_gemini():
         return jsonify({"analysis": analysis_text})
 
     except Exception as e:
-        print(f"Erro na análise da IA: {e}")
-        return jsonify({"error": f"Ocorreu um erro interno na análise da IA: {e}"}), 500
+        error_trace = traceback.format_exc()
+        print(f"ERRO CRÍTICO NO ENDPOINT /analyze-results: {e}")
+        print(error_trace)
+        return jsonify({"error": f"Ocorreu um erro interno na análise da IA."}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5001)
