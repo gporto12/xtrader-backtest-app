@@ -171,12 +171,10 @@
 <script>
     document.addEventListener('DOMContentLoaded', () => {
     
-        // --- State Variables ---
         let currentBacktestData = null;
         let chart = null;
-        let series = []; // Manter referência das séries para removê-las
+        let candleSeries = null; // Manter referência da série principal
 
-        // --- Element Constants ---
         const form = document.getElementById('backtest-form');
         const runBacktestBtn = document.getElementById('run-backtest-btn');
         const analyzeBtn = document.getElementById('analyze-btn');
@@ -191,15 +189,12 @@
         const chartPlaceholder = document.getElementById('chart-placeholder');
         const chartContainer = document.getElementById('chart-container');
 
-        // --- API Configuration ---
         const API_BASE_URL = window.location.hostname === '127.0.0.1' 
             ? 'http://127.0.0.1:5001' 
             : window.location.origin;
 
-        // --- Initializations ---
         initializeEmptyChart();
 
-        // --- Event Listeners ---
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -297,7 +292,6 @@
             }
         });
 
-        // --- Functions ---
         function populateResults(data) {
             document.getElementById('metric-total-operacoes').textContent = data.metricas.totalOperacoes;
             document.getElementById('metric-taxa-acerto').textContent = data.metricas.taxaAcerto;
@@ -344,16 +338,17 @@
             }
             if (!chart) return;
 
-            // CORREÇÃO: Remove todas as séries anteriores antes de adicionar novas
-            series.forEach(s => chart.removeSeries(s));
-            series = [];
+            // CORREÇÃO: Remove a série anterior se ela existir
+            if (candleSeries) {
+                chart.removeSeries(candleSeries);
+                candleSeries = null;
+            }
 
-            // CORREÇÃO: O nome da função é addCandlestickSeries (com 's' minúsculo)
-            const candleSeries = chart.addCandlestickSeries({
+            // CORREÇÃO: O nome correto da função é addCandlestickSeries
+            candleSeries = chart.addCandlestickSeries({
                 upColor: '#22C55E', downColor: '#EF4444', borderDownColor: '#EF4444',
                 borderUpColor: '#22C55E', wickDownColor: '#EF4444', wickUpColor: '#22C55E',
             });
-            series.push(candleSeries); // Guarda a referência da nova série
 
             candleSeries.setData(ohlcData);
             
