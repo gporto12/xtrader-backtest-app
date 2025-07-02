@@ -38,12 +38,10 @@ def detectar_sinais(df, tipo_estrategia):
     tolerancia_toque_valor = df_copy[f'MME{mme_longa}'] * tolerancia_toque
 
     if tipo_estrategia == 'compra':
-        # Lógica para Invert 50 de Compra
         df_copy['alinhadas'] = (df_copy[f'MME{mme_curta}'] > df_copy[f'MME{mme_media}']) & (df_copy[f'MME{mme_media}'] > df_copy[f'MME{mme_longa}'])
         df_copy['tocou_longa'] = abs(df_copy['low'] - df_copy[f'MME{mme_longa}']) <= tolerancia_toque_valor
         df_copy['candle_forte'] = (df_copy['close'].shift(-1) > df_copy[f'MME{mme_media}'].shift(-1)) & (df_copy['close'].shift(-1) > df_copy['open'].shift(-1))
-    else:  # Venda
-        # Lógica para Invert 50 de Venda
+    else: # Venda
         df_copy['alinhadas'] = (df_copy[f'MME{mme_longa}'] > df_copy[f'MME{mme_media}']) & (df_copy[f'MME{mme_media}'] > df_copy[f'MME{mme_curta}'])
         df_copy['tocou_longa'] = abs(df_copy['high'] - df_copy[f'MME{mme_longa}']) <= tolerancia_toque_valor
         df_copy['candle_forte'] = (df_copy['close'].shift(-1) < df_copy[f'MME{mme_media}'].shift(-1)) & (df_copy['close'].shift(-1) < df_copy['open'].shift(-1))
@@ -58,7 +56,7 @@ def detectar_sinais(df, tipo_estrategia):
     if tipo_estrategia == 'compra':
         sinais_df['stop'] = df_copy.loc[sinais_df.index, 'low'].shift(-1)
         sinais_df['alvo'] = np.where(mme_geral_entrada > sinais_df['entrada'], mme_geral_entrada, sinais_df['entrada'] + 2 * (sinais_df['entrada'] - sinais_df['stop']))
-    else:  # Venda
+    else: # Venda
         sinais_df['stop'] = df_copy.loc[sinais_df.index, 'high'].shift(-1)
         sinais_df['alvo'] = np.where(mme_geral_entrada < sinais_df['entrada'], mme_geral_entrada, sinais_df['entrada'] - 2 * (sinais_df['stop'] - sinais_df['entrada']))
 
@@ -81,7 +79,7 @@ def executar_simulacao(df_historico, df_sinais, tipo_operacao):
                     resultado_trade.update({"resultado": "Loss", "data_saida": data_candle, "preco_saida": stop}); break
                 elif candle['high'] >= alvo:
                     resultado_trade.update({"resultado": "Gain", "data_saida": data_candle, "preco_saida": alvo}); break
-            else:  # Venda
+            else: # Venda
                 if candle['high'] >= stop:
                     resultado_trade.update({"resultado": "Loss", "data_saida": data_candle, "preco_saida": stop}); break
                 elif candle['low'] <= alvo:
@@ -120,3 +118,4 @@ def calcular_metricas(resultados_df, lotes, valor_por_ponto):
         "lucroBrutoTotal": f"$ {lucro_bruto:,.2f}",
         "riscoRetorno": f"{risco_retorno:.2f}" if risco_retorno != float('inf') else "N/A",
         "drawdownMaximo": f"$ {drawdown_financeiro:,.2f}"
+    }
