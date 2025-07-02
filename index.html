@@ -317,7 +317,8 @@
             if (chart) return;
             const chartContainer = document.getElementById('chart-container');
             if (!chartContainer) return;
-            chart = LightweightCharts.createChart(chartContainer, {
+            // CORREÇÃO: Usar window.LightweightCharts para garantir o acesso ao objeto global
+            chart = window.LightweightCharts.createChart(chartContainer, {
                 width: chartContainer.clientWidth,
                 height: chartContainer.clientHeight,
                 layout: { backgroundColor: '#1F2937', textColor: 'rgba(255, 255, 255, 0.9)' },
@@ -367,4 +368,5 @@
 </script>
 </body>
 </html>
+
 
