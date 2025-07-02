@@ -59,7 +59,6 @@
                 <div>
                     <label for="estrategia" class="block text-sm font-medium text-gray-300 mb-2">Tipo de Operação</label>
                     <select id="estrategia" class="w-full bg-gray-700 border-gray-600 rounded-md p-2.5 text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                        <!-- CORRIGIDO -->
                         <option value="compra">Compra (Invert 50)</option>
                         <option value="venda">Venda (Invert 50)</option>
                     </select>
@@ -170,9 +169,6 @@
     </div>
 
 <script>
-    // CORREÇÃO: Envolvemos todo o código em um 'DOMContentLoaded' listener.
-    // Isso garante que o JavaScript só roda depois que todos os elementos HTML
-    // da página foram carregados, evitando erros de timing.
     document.addEventListener('DOMContentLoaded', () => {
     
         // --- State Variables ---
@@ -194,6 +190,11 @@
         const chartPlaceholder = document.getElementById('chart-placeholder');
         const chartContainer = document.getElementById('chart-container');
 
+        // --- API Configuration ---
+        const API_BASE_URL = window.location.hostname === '127.0.0.1' 
+            ? 'http://127.0.0.1:5001' 
+            : window.location.origin;
+
         // --- Initializations ---
         initializeEmptyChart();
 
@@ -204,13 +205,15 @@
             runBacktestBtn.disabled = true;
             runBacktestBtn.textContent = 'Processando...';
 
-            resultsSection.classList.remove('hidden');
-            resultsContent.classList.add('hidden');
-            errorMessage.classList.add('hidden');
-            aiAnalysisSection.classList.add('hidden');
+            resultsSection.classList.add('hidden');
             loadingSpinner.classList.remove('hidden');
-            currentBacktestData = null;
+            errorMessage.classList.add('hidden');
             
+            // CORREÇÃO: Remove a instância do gráfico anterior para recriá-la
+            if (chart) {
+                chart.remove();
+                chart = null;
+            }
             chartPlaceholder.style.display = 'flex';
             chartPlaceholder.textContent = 'Carregando dados do gráfico...';
 
@@ -224,12 +227,16 @@
             };
 
             try {
-                const apiUrl = window.location.hostname === '127.0.0.1' ? 'http://127.0.0.1:5001/backtest' : '/backtest';
-                const response = await fetch(apiUrl, {
+                const response = await fetch(`${API_BASE_URL}/backtest`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload),
                 });
+
+                const contentType = response.headers.get("content-type");
+                if (!contentType || !contentType.includes("application/json")) {
+                    throw new Error("O servidor retornou uma resposta inesperada (não é JSON). Verifique os logs do servidor no Render.");
+                }
 
                 const data = await response.json();
 
@@ -241,12 +248,15 @@
                 populateResults(data);
                 
                 loadingSpinner.classList.add('hidden');
+                resultsSection.classList.remove('hidden');
                 resultsContent.classList.remove('hidden');
 
             } catch (error) {
                 console.error('Erro ao rodar backtest:', error);
                 errorText.textContent = error.message;
                 loadingSpinner.classList.add('hidden');
+                resultsSection.classList.remove('hidden');
+                resultsContent.classList.add('hidden');
                 errorMessage.classList.remove('hidden');
                 chartPlaceholder.textContent = `Falha ao carregar dados do gráfico: ${error.message}`;
                 chartPlaceholder.style.display = 'flex';
@@ -266,12 +276,17 @@
             analyzeBtn.textContent = 'Analisando...';
 
             try {
-                const apiUrl = window.location.hostname === '127.0.0.1' ? 'http://127.0.0.1:5001/analyze-results' : '/analyze-results';
-                const response = await fetch(apiUrl, {
+                const response = await fetch(`${API_BASE_URL}/analyze-results`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(currentBacktestData),
                 });
+
+                const contentType = response.headers.get("content-type");
+                if (!contentType || !contentType.includes("application/json")) {
+                    throw new Error("O servidor retornou uma resposta inesperada na análise de IA.");
+                }
+
                 const data = await response.json();
                 if (!response.ok || data.error) throw new Error(data.error);
                 
@@ -326,14 +341,14 @@
         }
 
         function createOrUpdateChart(ohlcData, trades) {
-            const chartPlaceholder = document.getElementById('chart-placeholder');
-            if(chartPlaceholder) chartPlaceholder.style.display = 'none';
+            chartPlaceholder.style.display = 'none';
             
-            if (!chart) initializeEmptyChart();
-            if (!chart) return;
+            if (!chart) {
+                initializeEmptyChart();
+            }
+            if (!chart) return; // Se ainda assim falhar, sai
 
-            chart.series().forEach(series => chart.removeSeries(series));
-
+            // Esta função agora assume que o gráfico já está limpo e apenas adiciona as novas séries
             const candleSeries = chart.addCandlestickSeries({
                 upColor: '#22C55E', downColor: '#EF4444', borderDownColor: '#EF4444',
                 borderUpColor: '#22C55E', wickDownColor: '#EF4444', wickUpColor: '#22C55E',
