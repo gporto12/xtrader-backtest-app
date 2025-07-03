@@ -6,5 +6,5 @@ requests
 gunicorn
 apscheduler
 pandas-ta
-setuptools
+setuptools>=42
 wheel
