@@ -6,13 +6,11 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import pandas as pd
 
-# Agora importamos todas as funções de lógica necessárias
 from backtest_logic import buscar_dados_api, detectar_sinais, executar_simulacao, calcular_metricas
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
 
-# Pega as chaves de API das variáveis de ambiente do Render
 POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY', 'SUA_CHAVE_AQUI_PARA_TESTE_LOCAL')
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', 'SUA_CHAVE_AQUI_PARA_TESTE_LOCAL')
 
@@ -21,7 +19,6 @@ def create_analysis_prompt(metricas, trades):
     trades_str = ""
     for trade in trades[:10]:
         trades_str += f"- Trade em {pd.to_datetime(trade['data_entrada']).strftime('%d/%m/%Y')}: {trade['resultado']}, P&L: $ {float(trade['pnl_financeiro']):.2f}\n"
-    
     prompt = f"""
     Você é um analista de risco e estrategista de trading profissional. Analise os resultados de um backtest da estratégia "Invert 50".
 
@@ -31,7 +28,7 @@ def create_analysis_prompt(metricas, trades):
     {trades_str}
 
     **Sua Análise:**
-    Com base nos dados acima, forneça uma análise em 3 partes, usando Markdown:
+    Com base nos dados, forneça uma análise em 3 partes, usando Markdown:
     1.  **### Diagnóstico Geral:** Resuma o desempenho. Foi lucrativo? Consistente?
     2.  **### Pontos Fortes:** Identifique os aspectos positivos.
     3.  **### Pontos de Melhoria e Riscos:** Aponte as fraquezas e sugira otimizações.
@@ -41,15 +38,11 @@ def create_analysis_prompt(metricas, trades):
 
 @app.route('/')
 def home():
-    """Serve a página principal do nosso site."""
     return send_from_directory('.', 'index.html')
 
 @app.route('/backtest', methods=['POST'])
 def handle_backtest_request():
-    """
-    Endpoint da API que executa o backtest.
-    Esta versão é mais limpa, delegando os cálculos para o backtest_logic.
-    """
+    """Executa o backtest e retorna os resultados completos."""
     try:
         data = request.get_json()
         if not data:
@@ -65,23 +58,17 @@ def handle_backtest_request():
         if not all([ativo, data_inicio, data_fim]):
             return jsonify({"error": "Parâmetros 'ativo', 'data_inicio' e 'data_fim' são obrigatórios."}), 400
 
-        # 1. Busca os dados
         dados_historicos = buscar_dados_api(ativo, 'day', data_inicio, data_fim, POLYGON_API_KEY)
         if dados_historicos is None or dados_historicos.empty:
             return jsonify({"error": "Não foi possível obter dados históricos."}), 404
 
-        # 2. Deteta os sinais
         sinais_df = detectar_sinais(dados_historicos, estrategia)
         if sinais_df.empty:
             return jsonify({"error": "Nenhum trade foi gerado pela estratégia neste período."}), 200
 
-        # 3. Executa a simulação
         resultados_df = executar_simulacao(dados_historicos, sinais_df, tipo_operacao=estrategia)
-        
-        # 4. Calcula as métricas (agora usando a função do backtest_logic)
         metricas = calcular_metricas(resultados_df, lotes, valor_ponto)
 
-        # 5. Prepara os dados para a resposta
         historico_formatado = [{"time": int(index.timestamp()), "open": row['open'], "high": row['high'], "low": row['low'], "close": row['close']} for index, row in dados_historicos.iterrows()]
         
         resultados_df['data_entrada'] = pd.to_datetime(resultados_df['data_entrada']).astype(str)
