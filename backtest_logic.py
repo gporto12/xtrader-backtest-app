@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import requests
+import pandas_ta as ta
 
 def buscar_dados_api(ativo, timeframe, data_inicio, data_fim, api_key):
     """Busca dados históricos da API da Polygon.io."""
@@ -16,54 +17,99 @@ def buscar_dados_api(ativo, timeframe, data_inicio, data_fim, api_key):
             return None
         df = pd.DataFrame(data['results'])
         df['datetime'] = pd.to_datetime(df['t'], unit='ms')
-        df.rename(columns={'o': 'open', 'h': 'high', 'l': 'low', 'c': 'close'}, inplace=True)
+        df.rename(columns={'o': 'open', 'h': 'high', 'l': 'low', 'c': 'close', 'v': 'volume'}, inplace=True)
         df.set_index('datetime', inplace=True)
         print(f"Dados carregados com sucesso! Total de {len(df)} candles.")
-        return df[['open', 'high', 'low', 'close']]
+        return df[['open', 'high', 'low', 'close', 'volume']]
     except requests.exceptions.RequestException as e:
         print(f"Erro ao chamar a API da Polygon: {e}")
         return None
 
 def detectar_sinais(df, tipo_estrategia):
-    """Detecta sinais de compra ou venda com base na estratégia escolhida."""
-    df_copy = df.copy()
-    mme_curta, mme_media, mme_longa, mme_geral = 9, 20, 50, 200
-    tolerancia_toque = 0.01
+    """
+    Detecta sinais de compra ou venda usando uma máquina de estados para a lógica refinada.
+    """
+    if df is None or len(df) < 200:
+        print("Dados insuficientes para calcular todos os indicadores.")
+        return pd.DataFrame()
 
-    df_copy[f'MME{mme_curta}'] = df_copy['close'].ewm(span=mme_curta, adjust=False).mean()
-    df_copy[f'MME{mme_media}'] = df_copy['close'].ewm(span=mme_media, adjust=False).mean()
-    df_copy[f'MME{mme_longa}'] = df_copy['close'].ewm(span=mme_longa, adjust=False).mean()
-    df_copy[f'MME{mme_geral}'] = df_copy['close'].ewm(span=mme_geral, adjust=False).mean()
-    
-    tolerancia_toque_valor = df_copy[f'MME{mme_longa}'] * tolerancia_toque
+    # --- 1. Cálculo de Indicadores ---
+    df.ta.ema(length=9, append=True, col_names=('MME9',))
+    df.ta.ema(length=20, append=True, col_names=('MME20',))
+    df.ta.ema(length=50, append=True, col_names=('MME50',))
+    df.ta.ema(length=200, append=True, col_names=('MME200',))
+    df.ta.sma(length=200, append=True, col_names=('SMA200',))
+    df.dropna(inplace=True) # Remove linhas sem dados de indicadores
 
-    if tipo_estrategia == 'compra':
-        df_copy['alinhadas'] = (df_copy[f'MME{mme_curta}'] > df_copy[f'MME{mme_media}']) & (df_copy[f'MME{mme_media}'] > df_copy[f'MME{mme_longa}'])
-        df_copy['tocou_longa'] = abs(df_copy['low'] - df_copy[f'MME{mme_longa}']) <= tolerancia_toque_valor
-        df_copy['candle_forte'] = (df_copy['close'].shift(-1) > df_copy[f'MME{mme_media}'].shift(-1)) & (df_copy['close'].shift(-1) > df_copy['open'].shift(-1))
-    else: # Venda
-        df_copy['alinhadas'] = (df_copy[f'MME{mme_longa}'] > df_copy[f'MME{mme_media}']) & (df_copy[f'MME{mme_media}'] > df_copy[f'MME{mme_curta}'])
-        df_copy['tocou_longa'] = abs(df_copy['high'] - df_copy[f'MME{mme_longa}']) <= tolerancia_toque_valor
-        df_copy['candle_forte'] = (df_copy['close'].shift(-1) < df_copy[f'MME{mme_media}'].shift(-1)) & (df_copy['close'].shift(-1) < df_copy['open'].shift(-1))
+    sinais = []
+    estado = "PROCURANDO_TENDENCIA" # Estados possíveis: PROCURANDO_TENDENCIA, PROCURANDO_GATILHO
 
-    df_copy['sinal_valido'] = df_copy['alinhadas'] & df_copy['tocou_longa'] & df_copy['candle_forte']
-    sinais_df = df_copy[df_copy['sinal_valido']].copy()
-    if sinais_df.empty: return pd.DataFrame()
+    for i in range(len(df)):
+        candle_atual = df.iloc[i]
+        
+        # Define as condições de tendência para compra e venda
+        tendencia_de_alta = candle_atual['MME9'] > candle_atual['MME20'] and candle_atual['MME20'] > candle_atual['MME50']
+        tendencia_de_baixa = candle_atual['MME50'] > candle_atual['MME20'] and candle_atual['MME20'] > candle_atual['MME9']
 
-    sinais_df['entrada'] = df_copy.loc[sinais_df.index, 'close'].shift(-1)
-    mme_geral_entrada = df_copy.loc[sinais_df.index, f'MME{mme_geral}'].shift(-1)
+        if estado == "PROCURANDO_TENDENCIA":
+            if tipo_estrategia == 'compra' and tendencia_de_alta:
+                # Se a mínima tocar ou passar abaixo da MME50, muda o estado
+                if candle_atual['low'] <= candle_atual['MME50']:
+                    estado = "PROCURANDO_GATILHO"
+                    print(f"[{candle_atual.name.date()}] COMPRA: Tendência OK, toque na MME50. Procurando gatilho...")
+            
+            elif tipo_estrategia == 'venda' and tendencia_de_baixa:
+                # Se a máxima tocar ou passar acima da MME50, muda o estado
+                if candle_atual['high'] >= candle_atual['MME50']:
+                    estado = "PROCURANDO_GATILHO"
+                    print(f"[{candle_atual.name.date()}] VENDA: Tendência OK, toque na MME50. Procurando gatilho...")
 
-    if tipo_estrategia == 'compra':
-        sinais_df['stop'] = df_copy.loc[sinais_df.index, 'low'].shift(-1)
-        sinais_df['alvo'] = np.where(mme_geral_entrada > sinais_df['entrada'], mme_geral_entrada, sinais_df['entrada'] + 2 * (sinais_df['entrada'] - sinais_df['stop']))
-    else: # Venda
-        sinais_df['stop'] = df_copy.loc[sinais_df.index, 'high'].shift(-1)
-        sinais_df['alvo'] = np.where(mme_geral_entrada < sinais_df['entrada'], mme_geral_entrada, sinais_df['entrada'] - 2 * (sinais_df['stop'] - sinais_df['entrada']))
+        elif estado == "PROCURANDO_GATILHO":
+            # Verifica se a tendência se mantém. Se não, volta a procurar.
+            if (tipo_estrategia == 'compra' and not tendencia_de_alta) or \
+               (tipo_estrategia == 'venda' and not tendencia_de_baixa):
+                estado = "PROCURANDO_TENDENCIA"
+                print(f"[{candle_atual.name.date()}] Tendência quebrou. Voltando a procurar.")
+                continue
 
-    resultado = sinais_df[['entrada', 'stop', 'alvo']].dropna().copy()
-    resultado.reset_index(inplace=True)
-    resultado.rename(columns={'datetime': 'data'}, inplace=True)
-    return resultado[['data', 'entrada', 'stop', 'alvo']].round(2)
+            # Procura pelo candle de força (gatilho)
+            candle_de_forca = False
+            if tipo_estrategia == 'compra':
+                # Candle de força comprador que fecha acima da MME20
+                if candle_atual['close'] > candle_atual['open'] and candle_atual['close'] > candle_atual['MME20']:
+                    candle_de_forca = True
+            else: # Venda
+                # Candle de força vendedor que fecha abaixo da MME20
+                if candle_atual['close'] < candle_atual['open'] and candle_atual['close'] < candle_atual['MME20']:
+                    candle_de_forca = True
+
+            if candle_de_forca:
+                print(f"[{candle_atual.name.date()}] GATILHO ENCONTRADO!")
+                entrada = candle_atual['close']
+                
+                if tipo_estrategia == 'compra':
+                    stop = candle_atual['low']
+                    risco = entrada - stop
+                    # Alvo primário é a MME200, se não, 2x o risco
+                    alvo = candle_atual['MME200'] if entrada < candle_atual['MME200'] else entrada + (2 * risco)
+                else: # Venda
+                    stop = candle_atual['high']
+                    risco = stop - entrada
+                    # Alvo primário é a MME200, se não, 2x o risco
+                    alvo = candle_atual['MME200'] if entrada > candle_atual['MME200'] else entrada - (2 * risco)
+
+                if risco > 0: # Evita trades com risco zero
+                    sinais.append({
+                        "data": candle_atual.name,
+                        "entrada": entrada,
+                        "stop": stop,
+                        "alvo": alvo
+                    })
+                
+                # Após encontrar um sinal, volta ao estado inicial para procurar a próxima oportunidade
+                estado = "PROCURANDO_TENDENCIA"
+
+    return pd.DataFrame(sinais)
 
 def executar_simulacao(df_historico, df_sinais, tipo_operacao):
     """Simula os trades e retorna um DataFrame com os resultados."""
@@ -91,25 +137,19 @@ def calcular_metricas(resultados_df, lotes, valor_por_ponto):
     """Calcula as métricas de performance do backtest."""
     if resultados_df.empty:
         return {}
-
     resultados_df['pnl_pontos'] = resultados_df.apply(lambda row: abs(row['preco_saida'] - row['preco_entrada']) if row['resultado'] == 'Gain' else -abs(row['preco_saida'] - row['preco_entrada']) if row['resultado'] == 'Loss' else 0, axis=1)
     resultados_df['pnl_financeiro'] = resultados_df['pnl_pontos'] * lotes * valor_por_ponto
-    
     total_trades = len(resultados_df)
     trades_gain = resultados_df[resultados_df['resultado'] == 'Gain']
     trades_loss = resultados_df[resultados_df['resultado'] == 'Loss']
-    
     taxa_acerto = (len(trades_gain) / total_trades) * 100 if total_trades > 0 else 0
     lucro_bruto = resultados_df['pnl_financeiro'].sum()
-    
     media_gain = trades_gain['pnl_financeiro'].mean() if not trades_gain.empty else 0
     media_loss = abs(trades_loss['pnl_financeiro'].mean()) if not trades_loss.empty else 0
     risco_retorno = (media_gain / media_loss) if media_loss != 0 else float('inf')
-
     equity_curve = resultados_df['pnl_financeiro'].cumsum()
     pico_anterior = equity_curve.cummax()
     drawdown_financeiro = (pico_anterior - equity_curve).max()
-
     return {
         "totalOperacoes": total_trades,
         "tradesVencedores": len(trades_gain),
