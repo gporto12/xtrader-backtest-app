@@ -26,87 +26,58 @@ def buscar_dados_api(ativo, timeframe, data_inicio, data_fim, api_key):
         return None
 
 def detectar_sinais(df, tipo_estrategia):
-    """
-    Detecta sinais de compra ou venda usando uma máquina de estados para a lógica refinada.
-    """
-    if df is None or len(df) < 200:
-        print("Dados insuficientes para calcular todos os indicadores.")
+    """Detecta sinais de compra ou venda usando a lógica refinada 'Invert 50'."""
+    if df is None or len(df) < 51:
         return pd.DataFrame()
 
-    # --- 1. Cálculo de Indicadores ---
-    df.ta.ema(length=9, append=True, col_names=('MME9',))
-    df.ta.ema(length=20, append=True, col_names=('MME20',))
-    df.ta.ema(length=50, append=True, col_names=('MME50',))
-    df.ta.ema(length=200, append=True, col_names=('MME200',))
-    df.ta.sma(length=200, append=True, col_names=('SMA200',))
-    df.dropna(inplace=True) # Remove linhas sem dados de indicadores
+    df_copy = df.copy()
+    mme_curta, mme_media, mme_longa, mme_geral = 9, 20, 50, 200
+    
+    df_copy.ta.ema(length=mme_curta, append=True, col_names=(f'MME{mme_curta}',))
+    df_copy.ta.ema(length=mme_media, append=True, col_names=(f'MME{mme_media}',))
+    df_copy.ta.ema(length=mme_longa, append=True, col_names=(f'MME{mme_longa}',))
+    df_copy.ta.ema(length=mme_geral, append=True, col_names=(f'MME{mme_geral}',))
+    df_copy.dropna(inplace=True)
 
     sinais = []
-    estado = "PROCURANDO_TENDENCIA" # Estados possíveis: PROCURANDO_TENDENCIA, PROCURANDO_GATILHO
-
-    for i in range(len(df)):
-        candle_atual = df.iloc[i]
+    estado = "PROCURANDO_TENDENCIA"
+    
+    for i in range(len(df_copy)):
+        candle = df_copy.iloc[i]
         
-        # Define as condições de tendência para compra e venda
-        tendencia_de_alta = candle_atual['MME9'] > candle_atual['MME20'] and candle_atual['MME20'] > candle_atual['MME50']
-        tendencia_de_baixa = candle_atual['MME50'] > candle_atual['MME20'] and candle_atual['MME20'] > candle_atual['MME9']
+        tendencia_alta = candle[f'MME{mme_curta}'] > candle[f'MME{mme_media}'] > candle[f'MME{mme_longa}']
+        tendencia_baixa = candle[f'MME{mme_longa}'] > candle[f'MME{mme_media}'] > candle[f'MME{mme_curta}']
 
         if estado == "PROCURANDO_TENDENCIA":
-            if tipo_estrategia == 'compra' and tendencia_de_alta:
-                # Se a mínima tocar ou passar abaixo da MME50, muda o estado
-                if candle_atual['low'] <= candle_atual['MME50']:
-                    estado = "PROCURANDO_GATILHO"
-                    print(f"[{candle_atual.name.date()}] COMPRA: Tendência OK, toque na MME50. Procurando gatilho...")
-            
-            elif tipo_estrategia == 'venda' and tendencia_de_baixa:
-                # Se a máxima tocar ou passar acima da MME50, muda o estado
-                if candle_atual['high'] >= candle_atual['MME50']:
-                    estado = "PROCURANDO_GATILHO"
-                    print(f"[{candle_atual.name.date()}] VENDA: Tendência OK, toque na MME50. Procurando gatilho...")
-
+            if tipo_estrategia == 'compra' and tendencia_alta and candle['low'] <= candle[f'MME{mme_longa}']:
+                estado = "PROCURANDO_GATILHO"
+            elif tipo_estrategia == 'venda' and tendencia_baixa and candle['high'] >= candle[f'MME{mme_longa}']:
+                estado = "PROCURANDO_GATILHO"
+        
         elif estado == "PROCURANDO_GATILHO":
-            # Verifica se a tendência se mantém. Se não, volta a procurar.
-            if (tipo_estrategia == 'compra' and not tendencia_de_alta) or \
-               (tipo_estrategia == 'venda' and not tendencia_de_baixa):
-                estado = "PROCURANDO_TENDENCIA"
-                print(f"[{candle_atual.name.date()}] Tendência quebrou. Voltando a procurar.")
-                continue
+            gatilho_compra = tipo_estrategia == 'compra' and tendencia_alta and candle['close'] > candle['open'] and candle['close'] > candle[f'MME{mme_media}']
+            gatilho_venda = tipo_estrategia == 'venda' and tendencia_baixa and candle['close'] < candle['open'] and candle['close'] < candle[f'MME{mme_media}']
 
-            # Procura pelo candle de força (gatilho)
-            candle_de_forca = False
-            if tipo_estrategia == 'compra':
-                # Candle de força comprador que fecha acima da MME20
-                if candle_atual['close'] > candle_atual['open'] and candle_atual['close'] > candle_atual['MME20']:
-                    candle_de_forca = True
-            else: # Venda
-                # Candle de força vendedor que fecha abaixo da MME20
-                if candle_atual['close'] < candle_atual['open'] and candle_atual['close'] < candle_atual['MME20']:
-                    candle_de_forca = True
-
-            if candle_de_forca:
-                print(f"[{candle_atual.name.date()}] GATILHO ENCONTRADO!")
-                entrada = candle_atual['close']
+            if gatilho_compra or gatilho_venda:
+                entrada = candle['close']
+                risco_multiplicador = 2.0
                 
                 if tipo_estrategia == 'compra':
-                    stop = candle_atual['low']
+                    stop = candle['low']
                     risco = entrada - stop
-                    # Alvo primário é a MME200, se não, 2x o risco
-                    alvo = candle_atual['MME200'] if entrada < candle_atual['MME200'] else entrada + (2 * risco)
+                    alvo = entrada + (risco * risco_multiplicador)
                 else: # Venda
-                    stop = candle_atual['high']
+                    stop = candle['high']
                     risco = stop - entrada
-                    # Alvo primário é a MME200, se não, 2x o risco
-                    alvo = candle_atual['MME200'] if entrada > candle_atual['MME200'] else entrada - (2 * risco)
+                    alvo = entrada - (risco * risco_multiplicador)
 
-                if risco > 0: # Evita trades com risco zero
-                    sinais.append({
-                        "data": candle_atual.name,
-                        "entrada": entrada,
-                        "stop": stop,
-                        "alvo": alvo
-                    })
+                if risco > 0:
+                    sinais.append({"data": candle.name, "entrada": entrada, "stop": stop, "alvo": alvo})
                 
-                # Após encontrar um sinal, volta ao estado inicial para procurar a próxima oportunidade
+                estado = "PROCURANDO_TENDENCIA" # Reset para procurar o próximo
+            
+            # Reset se a tendência quebrar
+            elif (tipo_estrategia == 'compra' and not tendencia_alta) or (tipo_estrategia == 'venda' and not tendencia_baixa):
                 estado = "PROCURANDO_TENDENCIA"
 
     return pd.DataFrame(sinais)
@@ -125,7 +96,7 @@ def executar_simulacao(df_historico, df_sinais, tipo_operacao):
                     resultado_trade.update({"resultado": "Loss", "data_saida": data_candle, "preco_saida": stop}); break
                 elif candle['high'] >= alvo:
                     resultado_trade.update({"resultado": "Gain", "data_saida": data_candle, "preco_saida": alvo}); break
-            else: # Venda
+            else:
                 if candle['high'] >= stop:
                     resultado_trade.update({"resultado": "Loss", "data_saida": data_candle, "preco_saida": stop}); break
                 elif candle['low'] <= alvo:
@@ -135,21 +106,31 @@ def executar_simulacao(df_historico, df_sinais, tipo_operacao):
 
 def calcular_metricas(resultados_df, lotes, valor_por_ponto):
     """Calcula as métricas de performance do backtest."""
-    if resultados_df.empty:
+    if resultados_df.empty or 'resultado' not in resultados_df.columns:
         return {}
-    resultados_df['pnl_pontos'] = resultados_df.apply(lambda row: abs(row['preco_saida'] - row['preco_entrada']) if row['resultado'] == 'Gain' else -abs(row['preco_saida'] - row['preco_entrada']) if row['resultado'] == 'Loss' else 0, axis=1)
-    resultados_df['pnl_financeiro'] = resultados_df['pnl_pontos'] * lotes * valor_por_ponto
-    total_trades = len(resultados_df)
-    trades_gain = resultados_df[resultados_df['resultado'] == 'Gain']
-    trades_loss = resultados_df[resultados_df['resultado'] == 'Loss']
+
+    resultados_df['pnl_financeiro'] = resultados_df.apply(
+        lambda row: (abs(row['preco_saida'] - row['preco_entrada']) if row['resultado'] == 'Gain' else -abs(row['preco_saida'] - row['preco_entrada'])) * lotes * valor_por_ponto if row['resultado'] in ['Gain', 'Loss'] else 0, axis=1
+    )
+    
+    trades_finalizados = resultados_df[resultados_df['resultado'] != 'Aberto']
+    if trades_finalizados.empty: return {}
+
+    total_trades = len(trades_finalizados)
+    trades_gain = trades_finalizados[trades_finalizados['resultado'] == 'Gain']
+    trades_loss = trades_finalizados[trades_finalizados['resultado'] == 'Loss']
+    
     taxa_acerto = (len(trades_gain) / total_trades) * 100 if total_trades > 0 else 0
-    lucro_bruto = resultados_df['pnl_financeiro'].sum()
+    lucro_bruto = trades_finalizados['pnl_financeiro'].sum()
+    
     media_gain = trades_gain['pnl_financeiro'].mean() if not trades_gain.empty else 0
     media_loss = abs(trades_loss['pnl_financeiro'].mean()) if not trades_loss.empty else 0
     risco_retorno = (media_gain / media_loss) if media_loss != 0 else float('inf')
-    equity_curve = resultados_df['pnl_financeiro'].cumsum()
+
+    equity_curve = trades_finalizados['pnl_financeiro'].cumsum()
     pico_anterior = equity_curve.cummax()
     drawdown_financeiro = (pico_anterior - equity_curve).max()
+
     return {
         "totalOperacoes": total_trades,
         "tradesVencedores": len(trades_gain),
