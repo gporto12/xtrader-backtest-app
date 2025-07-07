@@ -26,59 +26,81 @@ def buscar_dados_api(ativo, timeframe, data_inicio, data_fim, api_key):
         return None
 
 def detectar_sinais(df, tipo_estrategia):
-    """Detecta sinais de compra ou venda usando a lógica refinada 'Invert 50'."""
-    if df is None or len(df) < 51:
+    """
+    Detecta sinais de compra ou venda usando a lógica de REVERSÃO da estratégia Invert 50.
+    """
+    if df is None or len(df) < 200:
+        print("Dados insuficientes para calcular todos os indicadores.")
         return pd.DataFrame()
 
-    df_copy = df.copy()
-    mme_curta, mme_media, mme_longa, mme_geral = 9, 20, 50, 200
-    
-    df_copy.ta.ema(length=mme_curta, append=True, col_names=(f'MME{mme_curta}',))
-    df_copy.ta.ema(length=mme_media, append=True, col_names=(f'MME{mme_media}',))
-    df_copy.ta.ema(length=mme_longa, append=True, col_names=(f'MME{mme_longa}',))
-    df_copy.ta.ema(length=mme_geral, append=True, col_names=(f'MME{mme_geral}',))
-    df_copy.dropna(inplace=True)
+    # --- 1. Cálculo de Indicadores ---
+    df.ta.ema(length=9, append=True, col_names=('MME9',))
+    df.ta.ema(length=20, append=True, col_names=('MME20',))
+    df.ta.ema(length=50, append=True, col_names=('MME50',))
+    df.ta.ema(length=200, append=True, col_names=('MME200',))
+    df.dropna(inplace=True)
 
     sinais = []
-    estado = "PROCURANDO_TENDENCIA"
+    # Estados: AGUARDANDO_REVERSAO, AGUARDANDO_PULLBACK, AGUARDANDO_GATILHO
+    estado = "AGUARDANDO_REVERSAO" 
     
-    for i in range(len(df_copy)):
-        candle = df_copy.iloc[i]
-        
-        tendencia_alta = candle[f'MME{mme_curta}'] > candle[f'MME{mme_media}'] > candle[f'MME{mme_longa}']
-        tendencia_baixa = candle[f'MME{mme_longa}'] > candle[f'MME{mme_media}'] > candle[f'MME{mme_curta}']
+    # Adiciona colunas para verificar cruzamentos
+    df['MME20_acima_MME50'] = df['MME20'] > df['MME50']
+    df['cruzou_para_cima'] = df['MME20_acima_MME50'] & ~df['MME20_acima_MME50'].shift(1)
+    df['cruzou_para_baixo'] = ~df['MME20_acima_MME50'] & df['MME20_acima_MME50'].shift(1)
 
-        if estado == "PROCURANDO_TENDENCIA":
-            if tipo_estrategia == 'compra' and tendencia_alta and candle['low'] <= candle[f'MME{mme_longa}']:
-                estado = "PROCURANDO_GATILHO"
-            elif tipo_estrategia == 'venda' and tendencia_baixa and candle['high'] >= candle[f'MME{mme_longa}']:
-                estado = "PROCURANDO_GATILHO"
+    for i in range(1, len(df)): # Começa do 1 para poder usar .shift(1)
+        candle = df.iloc[i]
         
-        elif estado == "PROCURANDO_GATILHO":
-            gatilho_compra = tipo_estrategia == 'compra' and tendencia_alta and candle['close'] > candle['open'] and candle['close'] > candle[f'MME{mme_media}']
-            gatilho_venda = tipo_estrategia == 'venda' and tendencia_baixa and candle['close'] < candle['open'] and candle['close'] < candle[f'MME{mme_media}']
+        tendencia_alta_confirmada = candle['MME9'] > candle['MME20'] and candle['MME20'] > candle['MME50']
+        tendencia_baixa_confirmada = candle['MME50'] > candle['MME20'] and candle['MME20'] > candle['MME9']
+
+        if estado == "AGUARDANDO_REVERSAO":
+            if tipo_estrategia == 'compra' and candle['cruzou_para_cima']:
+                estado = "AGUARDANDO_PULLBACK"
+                print(f"[{candle.name.date()}] COMPRA: Reversão detectada (MME20 cruzou MME50). Aguardando pullback.")
+            elif tipo_estrategia == 'venda' and candle['cruzou_para_baixo']:
+                estado = "AGUARDANDO_PULLBACK"
+                print(f"[{candle.name.date()}] VENDA: Reversão detectada (MME20 cruzou MME50). Aguardando pullback.")
+
+        elif estado == "AGUARDANDO_PULLBACK":
+            if tipo_estrategia == 'compra' and tendencia_alta_confirmada and candle['low'] <= candle['MME50']:
+                estado = "AGUARDANDO_GATILHO"
+                print(f"[{candle.name.date()}] COMPRA: Pullback à MME50 confirmado. Aguardando gatilho.")
+            elif tipo_estrategia == 'venda' and tendencia_baixa_confirmada and candle['high'] >= candle['MME50']:
+                estado = "AGUARDANDO_GATILHO"
+                print(f"[{candle.name.date()}] VENDA: Pullback à MME50 confirmado. Aguardando gatilho.")
+        
+        elif estado == "AGUARDANDO_GATILHO":
+            gatilho_compra = tipo_estrategia == 'compra' and tendencia_alta_confirmada and candle['close'] > candle['open'] and candle['close'] > candle['MME20']
+            gatilho_venda = tipo_estrategia == 'venda' and tendencia_baixa_confirmada and candle['close'] < candle['open'] and candle['close'] < candle['MME20']
 
             if gatilho_compra or gatilho_venda:
                 entrada = candle['close']
-                risco_multiplicador = 2.0
+                alvo = candle['MME200']
                 
-                if tipo_estrategia == 'compra':
-                    stop = candle['low']
-                    risco = entrada - stop
-                    alvo = entrada + (risco * risco_multiplicador)
-                else: # Venda
-                    stop = candle['high']
-                    risco = stop - entrada
-                    alvo = entrada - (risco * risco_multiplicador)
-
-                if risco > 0:
+                # Validação final do alvo
+                if (tipo_estrategia == 'compra' and entrada < alvo) or \
+                   (tipo_estrategia == 'venda' and entrada > alvo):
+                    
+                    print(f"[{candle.name.date()}] GATILHO VÁLIDO ENCONTRADO!")
+                    
+                    if tipo_estrategia == 'compra':
+                        stop = candle['low']
+                    else: # Venda
+                        stop = candle['high']
+                    
                     sinais.append({"data": candle.name, "entrada": entrada, "stop": stop, "alvo": alvo})
-                
-                estado = "PROCURANDO_TENDENCIA" # Reset para procurar o próximo
+                    estado = "AGUARDANDO_REVERSAO" # Reset completo
+                else:
+                    print(f"[{candle.name.date()}] Gatilho encontrado, mas alvo inválido. Descartando.")
+                    estado = "AGUARDANDO_REVERSAO" # Reset se o alvo não for válido
             
-            # Reset se a tendência quebrar
-            elif (tipo_estrategia == 'compra' and not tendencia_alta) or (tipo_estrategia == 'venda' and not tendencia_baixa):
-                estado = "PROCURANDO_TENDENCIA"
+            # Reset se a tendência quebrar antes do gatilho
+            elif (tipo_estrategia == 'compra' and not tendencia_alta_confirmada) or \
+                 (tipo_estrategia == 'venda' and not tendencia_baixa_confirmada):
+                estado = "AGUARDANDO_REVERSAO"
+                print(f"[{candle.name.date()}] Tendência quebrou antes do gatilho. Resetando.")
 
     return pd.DataFrame(sinais)
 
@@ -108,14 +130,13 @@ def calcular_metricas(resultados_df, lotes, valor_por_ponto):
     """Calcula as métricas de performance do backtest."""
     if resultados_df.empty or 'resultado' not in resultados_df.columns:
         return {}
+    trades_finalizados = resultados_df[resultados_df['resultado'] != 'Aberto'].copy()
+    if trades_finalizados.empty: return { "totalOperacoes": 0 }
 
-    resultados_df['pnl_financeiro'] = resultados_df.apply(
-        lambda row: (abs(row['preco_saida'] - row['preco_entrada']) if row['resultado'] == 'Gain' else -abs(row['preco_saida'] - row['preco_entrada'])) * lotes * valor_por_ponto if row['resultado'] in ['Gain', 'Loss'] else 0, axis=1
+    trades_finalizados['pnl_financeiro'] = trades_finalizados.apply(
+        lambda row: (abs(row['preco_saida'] - row['preco_entrada']) if row['resultado'] == 'Gain' else -abs(row['preco_saida'] - row['preco_entrada'])) * lotes * valor_por_ponto, axis=1
     )
     
-    trades_finalizados = resultados_df[resultados_df['resultado'] != 'Aberto']
-    if trades_finalizados.empty: return {}
-
     total_trades = len(trades_finalizados)
     trades_gain = trades_finalizados[trades_finalizados['resultado'] == 'Gain']
     trades_loss = trades_finalizados[trades_finalizados['resultado'] == 'Loss']
