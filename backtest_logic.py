@@ -1,34 +1,26 @@
 import pandas as pd
 import numpy as np
-import yfinance as yf # Importa a nova biblioteca
+import requests
 import pandas_ta as ta
 
-def buscar_dados_api(ativo, timeframe, data_inicio, data_fim):
-    """
-    Busca dados históricos usando a biblioteca yfinance.
-    Nota: O parâmetro 'api_key' não é mais necessário.
-    """
-    print(f"Buscando dados para {ativo} de {data_inicio} a {data_fim} via yfinance...")
+def buscar_dados_api(ativo, timeframe, data_inicio, data_fim, api_key):
+    """Busca dados históricos da API da Polygon.io."""
+    print(f"Buscando dados para {ativo} de {data_inicio} a {data_fim}...")
+    API_URL = f"https://api.polygon.io/v2/aggs/ticker/{ativo}/range/1/{timeframe}/{data_inicio}/{data_fim}"
+    params = {'adjusted': 'true', 'sort': 'asc', 'limit': 50000, 'apiKey': api_key}
     try:
-        # yfinance usa '1d' para diário, '1h' para horário, etc.
-        # Para simplificar, vamos assumir dados diários ('1d') por agora.
-        ticker = yf.Ticker(ativo)
-        df = ticker.history(start=data_inicio, end=data_fim, interval="1d")
-
-        if df.empty:
-            print("Nenhum dado retornado pelo yfinance.")
+        response = requests.get(API_URL, params=params)
+        response.raise_for_status()
+        data = response.json()
+        if not data.get('results'):
             return None
-        
-        # Renomeia as colunas para minúsculas para manter a consistência com o resto do código
-        df.rename(columns={
-            "Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"
-        }, inplace=True)
-
-        print(f"Dados carregados com sucesso! Total de {len(df)} candles.")
+        df = pd.DataFrame(data['results'])
+        df['datetime'] = pd.to_datetime(df['t'], unit='ms')
+        df.rename(columns={'o': 'open', 'h': 'high', 'l': 'low', 'c': 'close', 'v': 'volume'}, inplace=True)
+        df.set_index('datetime', inplace=True)
         return df[['open', 'high', 'low', 'close', 'volume']]
-        
-    except Exception as e:
-        print(f"Erro ao buscar dados com yfinance: {e}")
+    except requests.exceptions.RequestException as e:
+        print(f"Erro ao chamar a API da Polygon: {e}")
         return None
 
 def detectar_sinais(df, tipo_estrategia):
@@ -43,12 +35,14 @@ def detectar_sinais(df, tipo_estrategia):
     df.dropna(inplace=True)
 
     sinais = []
-    estado = "AGUARDANDO_REVERSAO" 
+    estado = "AGUARDANDO_REVERSAO"
     
+    # --- CORREÇÃO DEFINITIVA: Lógica de cruzamento robusta que evita erros de tipo ---
     df['MME20_acima_MME50'] = df['MME20'] > df['MME50']
-    shifted_series = df['MME20_acima_MME50'].shift(1).fillna(False).astype(bool)
-    df['cruzou_para_cima'] = df['MME20_acima_MME50'] & ~shifted_series
-    df['cruzou_para_baixo'] = ~df['MME20_acima_MME50'] & shifted_series
+    df['MME20_estava_acima_MME50'] = df['MME20_acima_MME50'].shift(1)
+    
+    df['cruzou_para_cima'] = (df['MME20_acima_MME50'] == True) & (df['MME20_estava_acima_MME50'] == False)
+    df['cruzou_para_baixo'] = (df['MME20_acima_MME50'] == False) & (df['MME20_estava_acima_MME50'] == True)
 
     for i in range(1, len(df)):
         candle = df.iloc[i]
