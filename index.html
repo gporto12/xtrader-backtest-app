@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>X-Traders Backtest com IA</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- CORREÇÃO: Fixa a versão da biblioteca para garantir a compatibilidade -->
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
@@ -15,10 +14,6 @@
         .chart-placeholder { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; color: #6B7280; font-size: 1.1rem; z-index: 10; }
         .metric-card h3 { font-size: 0.9rem; }
         .metric-card p { font-size: 1.75rem; }
-        .table-container { max-height: 400px; overflow-y: auto; }
-        .table-container::-webkit-scrollbar { width: 8px; }
-        .table-container::-webkit-scrollbar-track { background: #1F2937; }
-        .table-container::-webkit-scrollbar-thumb { background-color: #4B5563; border-radius: 10px; border: 2px solid #1F2937; }
     </style>
 </head>
 <body class="antialiased">
