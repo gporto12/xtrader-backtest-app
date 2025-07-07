@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>X-Traders Backtest com IA</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- CORREÇÃO: Usando a versão recomendada da biblioteca para garantir compatibilidade -->
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
@@ -118,21 +117,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const API_BASE_URL = window.location.hostname === '127.0.0.1' ? 'http://127.0.0.1:5001' : window.location.origin;
 
     const initializeChart = () => {
-        if (chart) chart.remove();
-        
+        if (chart) return;
         if (typeof LightweightCharts === 'undefined') {
             console.error('Biblioteca LightweightCharts não foi carregada.');
-            elements.chartPlaceholder.textContent = 'Erro: Falha ao carregar a biblioteca de gráficos.';
             return;
         }
-        
         chart = LightweightCharts.createChart(elements.chartContainer, {
             width: elements.chartContainer.clientWidth,
             height: elements.chartContainer.clientHeight,
             layout: { backgroundColor: '#161B22', textColor: '#C9D1D9' },
             grid: { vertLines: { color: '#30363D' }, horzLines: { color: '#30363D' } },
         });
-
         new ResizeObserver(entries => {
             if (entries[0] && entries[0].contentRect.width) {
                 chart.resize(entries[0].contentRect.width, elements.chartContainer.clientHeight);
@@ -141,21 +136,18 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const updateChart = (ohlcData, trades, estrategia) => {
+        if (!chart) initializeChart();
         if (!chart || typeof chart.addCandlestickSeries !== 'function') {
-            console.error('Objeto do gráfico inválido ou método não encontrado.', chart);
             displayError('Falha crítica ao criar o gráfico. Por favor, recarregue a página.');
             return;
         }
-
         elements.chartPlaceholder.style.display = 'none';
         if (candleSeries) chart.removeSeries(candleSeries);
-
         candleSeries = chart.addCandlestickSeries({
             upColor: '#22C55E', downColor: '#EF4444', borderDownColor: '#EF4444',
             borderUpColor: '#22C55E', wickDownColor: '#EF4444', wickUpColor: '#22C55E',
         });
         candleSeries.setData(ohlcData);
-
         const markers = trades.map(trade => ({
             time: new Date(trade.data_entrada).getTime() / 1000,
             position: estrategia === 'compra' ? 'belowBar' : 'aboveBar',
@@ -203,7 +195,11 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             
             const data = await response.json();
-            if (!response.ok) throw new Error(data.error || 'Erro no servidor.');
+            // CORREÇÃO: Verifica se a resposta contém a chave 'error'
+            if (!response.ok || data.error) {
+                // Se houver um erro, lança-o para ser apanhado pelo bloco catch
+                throw new Error(data.error || 'Erro desconhecido no servidor.');
+            }
 
             currentBacktestData = data;
             populateUI(data);
@@ -220,6 +216,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const populateUI = (data) => {
+        // CORREÇÃO: Verifica se o objeto 'metricas' existe antes de tentar usá-lo
+        if (!data.metricas) {
+            displayError("A resposta do servidor não continha as métricas esperadas.");
+            return;
+        }
         const { metricas, trades, historico_ohlc } = data;
         elements.metrics.total.textContent = metricas.totalOperacoes;
         elements.metrics.accuracy.textContent = metricas.taxaAcerto;
