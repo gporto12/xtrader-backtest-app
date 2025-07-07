@@ -26,14 +26,10 @@ def buscar_dados_api(ativo, timeframe, data_inicio, data_fim, api_key):
         return None
 
 def detectar_sinais(df, tipo_estrategia):
-    """
-    Detecta sinais de compra ou venda usando a lógica de REVERSÃO da estratégia Invert 50.
-    """
+    """Detecta sinais de compra ou venda usando a lógica de REVERSÃO da estratégia Invert 50."""
     if df is None or len(df) < 200:
-        print("Dados insuficientes para calcular todos os indicadores.")
         return pd.DataFrame()
 
-    # --- 1. Cálculo de Indicadores ---
     df.ta.ema(length=9, append=True, col_names=('MME9',))
     df.ta.ema(length=20, append=True, col_names=('MME20',))
     df.ta.ema(length=50, append=True, col_names=('MME50',))
@@ -41,15 +37,15 @@ def detectar_sinais(df, tipo_estrategia):
     df.dropna(inplace=True)
 
     sinais = []
-    # Estados: AGUARDANDO_REVERSAO, AGUARDANDO_PULLBACK, AGUARDANDO_GATILHO
     estado = "AGUARDANDO_REVERSAO" 
     
-    # Adiciona colunas para verificar cruzamentos
     df['MME20_acima_MME50'] = df['MME20'] > df['MME50']
-    df['cruzou_para_cima'] = df['MME20_acima_MME50'] & ~df['MME20_acima_MME50'].shift(1)
-    df['cruzou_para_baixo'] = ~df['MME20_acima_MME50'] & df['MME20_acima_MME50'].shift(1)
+    # CORREÇÃO: Garante que a série é booleana antes de usar o operador '~'
+    shifted_series = df['MME20_acima_MME50'].shift(1).fillna(False).astype(bool)
+    df['cruzou_para_cima'] = df['MME20_acima_MME50'] & ~shifted_series
+    df['cruzou_para_baixo'] = ~df['MME20_acima_MME50'] & shifted_series
 
-    for i in range(1, len(df)): # Começa do 1 para poder usar .shift(1)
+    for i in range(1, len(df)):
         candle = df.iloc[i]
         
         tendencia_alta_confirmada = candle['MME9'] > candle['MME20'] and candle['MME20'] > candle['MME50']
@@ -58,18 +54,14 @@ def detectar_sinais(df, tipo_estrategia):
         if estado == "AGUARDANDO_REVERSAO":
             if tipo_estrategia == 'compra' and candle['cruzou_para_cima']:
                 estado = "AGUARDANDO_PULLBACK"
-                print(f"[{candle.name.date()}] COMPRA: Reversão detectada (MME20 cruzou MME50). Aguardando pullback.")
             elif tipo_estrategia == 'venda' and candle['cruzou_para_baixo']:
                 estado = "AGUARDANDO_PULLBACK"
-                print(f"[{candle.name.date()}] VENDA: Reversão detectada (MME20 cruzou MME50). Aguardando pullback.")
 
         elif estado == "AGUARDANDO_PULLBACK":
             if tipo_estrategia == 'compra' and tendencia_alta_confirmada and candle['low'] <= candle['MME50']:
                 estado = "AGUARDANDO_GATILHO"
-                print(f"[{candle.name.date()}] COMPRA: Pullback à MME50 confirmado. Aguardando gatilho.")
             elif tipo_estrategia == 'venda' and tendencia_baixa_confirmada and candle['high'] >= candle['MME50']:
                 estado = "AGUARDANDO_GATILHO"
-                print(f"[{candle.name.date()}] VENDA: Pullback à MME50 confirmado. Aguardando gatilho.")
         
         elif estado == "AGUARDANDO_GATILHO":
             gatilho_compra = tipo_estrategia == 'compra' and tendencia_alta_confirmada and candle['close'] > candle['open'] and candle['close'] > candle['MME20']
@@ -79,33 +71,23 @@ def detectar_sinais(df, tipo_estrategia):
                 entrada = candle['close']
                 alvo = candle['MME200']
                 
-                # Validação final do alvo
-                if (tipo_estrategia == 'compra' and entrada < alvo) or \
-                   (tipo_estrategia == 'venda' and entrada > alvo):
-                    
-                    print(f"[{candle.name.date()}] GATILHO VÁLIDO ENCONTRADO!")
-                    
+                if (tipo_estrategia == 'compra' and entrada < alvo) or (tipo_estrategia == 'venda' and entrada > alvo):
                     if tipo_estrategia == 'compra':
                         stop = candle['low']
-                    else: # Venda
+                    else:
                         stop = candle['high']
                     
                     sinais.append({"data": candle.name, "entrada": entrada, "stop": stop, "alvo": alvo})
-                    estado = "AGUARDANDO_REVERSAO" # Reset completo
+                    estado = "AGUARDANDO_REVERSAO"
                 else:
-                    print(f"[{candle.name.date()}] Gatilho encontrado, mas alvo inválido. Descartando.")
-                    estado = "AGUARDANDO_REVERSAO" # Reset se o alvo não for válido
+                    estado = "AGUARDANDO_REVERSAO"
             
-            # Reset se a tendência quebrar antes do gatilho
-            elif (tipo_estrategia == 'compra' and not tendencia_alta_confirmada) or \
-                 (tipo_estrategia == 'venda' and not tendencia_baixa_confirmada):
+            elif (tipo_estrategia == 'compra' and not tendencia_alta_confirmada) or (tipo_estrategia == 'venda' and not tendencia_baixa_confirmada):
                 estado = "AGUARDANDO_REVERSAO"
-                print(f"[{candle.name.date()}] Tendência quebrou antes do gatilho. Resetando.")
 
     return pd.DataFrame(sinais)
 
 def executar_simulacao(df_historico, df_sinais, tipo_operacao):
-    """Simula os trades e retorna um DataFrame com os resultados."""
     resultados = []
     for _, sinal in df_sinais.iterrows():
         data_entrada = pd.to_datetime(sinal['data'])
@@ -127,31 +109,24 @@ def executar_simulacao(df_historico, df_sinais, tipo_operacao):
     return pd.DataFrame(resultados)
 
 def calcular_metricas(resultados_df, lotes, valor_por_ponto):
-    """Calcula as métricas de performance do backtest."""
     if resultados_df.empty or 'resultado' not in resultados_df.columns:
         return {}
     trades_finalizados = resultados_df[resultados_df['resultado'] != 'Aberto'].copy()
     if trades_finalizados.empty: return { "totalOperacoes": 0 }
-
     trades_finalizados['pnl_financeiro'] = trades_finalizados.apply(
         lambda row: (abs(row['preco_saida'] - row['preco_entrada']) if row['resultado'] == 'Gain' else -abs(row['preco_saida'] - row['preco_entrada'])) * lotes * valor_por_ponto, axis=1
     )
-    
     total_trades = len(trades_finalizados)
     trades_gain = trades_finalizados[trades_finalizados['resultado'] == 'Gain']
     trades_loss = trades_finalizados[trades_finalizados['resultado'] == 'Loss']
-    
     taxa_acerto = (len(trades_gain) / total_trades) * 100 if total_trades > 0 else 0
     lucro_bruto = trades_finalizados['pnl_financeiro'].sum()
-    
     media_gain = trades_gain['pnl_financeiro'].mean() if not trades_gain.empty else 0
     media_loss = abs(trades_loss['pnl_financeiro'].mean()) if not trades_loss.empty else 0
     risco_retorno = (media_gain / media_loss) if media_loss != 0 else float('inf')
-
     equity_curve = trades_finalizados['pnl_financeiro'].cumsum()
     pico_anterior = equity_curve.cummax()
     drawdown_financeiro = (pico_anterior - equity_curve).max()
-
     return {
         "totalOperacoes": total_trades,
         "tradesVencedores": len(trades_gain),
