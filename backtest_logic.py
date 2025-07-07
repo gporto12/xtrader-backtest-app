@@ -1,28 +1,34 @@
 import pandas as pd
 import numpy as np
-import requests
+import yfinance as yf # Importa a nova biblioteca
 import pandas_ta as ta
 
-def buscar_dados_api(ativo, timeframe, data_inicio, data_fim, api_key):
-    """Busca dados históricos da API da Polygon.io."""
-    print(f"Buscando dados para {ativo} de {data_inicio} a {data_fim}...")
-    API_URL = f"https://api.polygon.io/v2/aggs/ticker/{ativo}/range/1/{timeframe}/{data_inicio}/{data_fim}"
-    params = {'adjusted': 'true', 'sort': 'asc', 'limit': 50000, 'apiKey': api_key}
+def buscar_dados_api(ativo, timeframe, data_inicio, data_fim):
+    """
+    Busca dados históricos usando a biblioteca yfinance.
+    Nota: O parâmetro 'api_key' não é mais necessário.
+    """
+    print(f"Buscando dados para {ativo} de {data_inicio} a {data_fim} via yfinance...")
     try:
-        response = requests.get(API_URL, params=params)
-        response.raise_for_status()
-        data = response.json()
-        if not data.get('results'):
-            print("Nenhum dado retornado pela API.")
+        # yfinance usa '1d' para diário, '1h' para horário, etc.
+        # Para simplificar, vamos assumir dados diários ('1d') por agora.
+        ticker = yf.Ticker(ativo)
+        df = ticker.history(start=data_inicio, end=data_fim, interval="1d")
+
+        if df.empty:
+            print("Nenhum dado retornado pelo yfinance.")
             return None
-        df = pd.DataFrame(data['results'])
-        df['datetime'] = pd.to_datetime(df['t'], unit='ms')
-        df.rename(columns={'o': 'open', 'h': 'high', 'l': 'low', 'c': 'close', 'v': 'volume'}, inplace=True)
-        df.set_index('datetime', inplace=True)
+        
+        # Renomeia as colunas para minúsculas para manter a consistência com o resto do código
+        df.rename(columns={
+            "Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"
+        }, inplace=True)
+
         print(f"Dados carregados com sucesso! Total de {len(df)} candles.")
         return df[['open', 'high', 'low', 'close', 'volume']]
-    except requests.exceptions.RequestException as e:
-        print(f"Erro ao chamar a API da Polygon: {e}")
+        
+    except Exception as e:
+        print(f"Erro ao buscar dados com yfinance: {e}")
         return None
 
 def detectar_sinais(df, tipo_estrategia):
@@ -40,7 +46,6 @@ def detectar_sinais(df, tipo_estrategia):
     estado = "AGUARDANDO_REVERSAO" 
     
     df['MME20_acima_MME50'] = df['MME20'] > df['MME50']
-    # CORREÇÃO: Garante que a série é booleana antes de usar o operador '~'
     shifted_series = df['MME20_acima_MME50'].shift(1).fillna(False).astype(bool)
     df['cruzou_para_cima'] = df['MME20_acima_MME50'] & ~shifted_series
     df['cruzou_para_baixo'] = ~df['MME20_acima_MME50'] & shifted_series
@@ -72,11 +77,7 @@ def detectar_sinais(df, tipo_estrategia):
                 alvo = candle['MME200']
                 
                 if (tipo_estrategia == 'compra' and entrada < alvo) or (tipo_estrategia == 'venda' and entrada > alvo):
-                    if tipo_estrategia == 'compra':
-                        stop = candle['low']
-                    else:
-                        stop = candle['high']
-                    
+                    stop = candle['low'] if tipo_estrategia == 'compra' else candle['high']
                     sinais.append({"data": candle.name, "entrada": entrada, "stop": stop, "alvo": alvo})
                     estado = "AGUARDANDO_REVERSAO"
                 else:
