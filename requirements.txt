@@ -2,9 +2,8 @@ Flask
 Flask-Cors
 pandas
 numpy==1.23.5
-requests
 gunicorn
-apscheduler
 pandas-ta
 setuptools>=42
 wheel
+yfinance
