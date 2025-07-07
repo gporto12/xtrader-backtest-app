@@ -317,7 +317,7 @@
             if (chart) return;
             const chartContainer = document.getElementById('chart-container');
             if (!chartContainer) return;
-            // CORREÇÃO: Usar window.LightweightCharts para garantir o acesso ao objeto global
+            
             chart = window.LightweightCharts.createChart(chartContainer, {
                 width: chartContainer.clientWidth,
                 height: chartContainer.clientHeight,
