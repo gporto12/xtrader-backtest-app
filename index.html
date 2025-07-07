@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>X-Traders Backtest com IA</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    <!-- CORREÇÃO: Adiciona um parâmetro de versão para forçar o navegador a descarregar o ficheiro novamente -->
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js?v=2"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #0D1117; color: #C9D1D9; }
@@ -117,37 +118,64 @@ document.addEventListener('DOMContentLoaded', () => {
     const API_BASE_URL = window.location.hostname === '127.0.0.1' ? 'http://127.0.0.1:5001' : window.location.origin;
 
     const initializeChart = () => {
-        if (chart) return;
-        if (typeof LightweightCharts === 'undefined') {
-            console.error('Biblioteca LightweightCharts não foi carregada.');
-            return;
+        console.log("Attempting to initialize chart...");
+        if (chart) {
+            console.log("Chart already exists. Removing old instance.");
+            chart.remove();
+            chart = null;
         }
-        chart = LightweightCharts.createChart(elements.chartContainer, {
+        
+        if (typeof LightweightCharts === 'undefined') {
+            console.error('LightweightCharts library is NOT LOADED.');
+            elements.chartPlaceholder.textContent = 'Erro: Falha ao carregar a biblioteca de gráficos.';
+            return null;
+        }
+        
+        console.log("LightweightCharts library found. Creating chart...");
+        const newChart = LightweightCharts.createChart(elements.chartContainer, {
             width: elements.chartContainer.clientWidth,
             height: elements.chartContainer.clientHeight,
             layout: { backgroundColor: '#161B22', textColor: '#C9D1D9' },
             grid: { vertLines: { color: '#30363D' }, horzLines: { color: '#30363D' } },
         });
+        console.log("Chart object created:", newChart);
+
         new ResizeObserver(entries => {
             if (entries[0] && entries[0].contentRect.width) {
-                chart.resize(entries[0].contentRect.width, elements.chartContainer.clientHeight);
+                newChart.resize(entries[0].contentRect.width, elements.chartContainer.clientHeight);
             }
         }).observe(elements.chartContainer);
+        return newChart;
     };
 
     const updateChart = (ohlcData, trades, estrategia) => {
-        if (!chart) initializeChart();
-        if (!chart || typeof chart.addCandlestickSeries !== 'function') {
-            displayError('Falha crítica ao criar o gráfico. Por favor, recarregue a página.');
+        console.log("Attempting to update chart.");
+        if (!chart) {
+            console.log("Chart object is null, re-initializing.");
+            chart = initializeChart();
+        }
+        if (!chart) {
+            displayError('Falha crítica ao inicializar o objeto do gráfico.');
             return;
         }
+        
+        console.log("Chart object is valid. Checking for addCandlestickSeries method:", typeof chart.addCandlestickSeries);
+        if (typeof chart.addCandlestickSeries !== 'function') {
+            displayError('Erro: a função addCandlestickSeries não foi encontrada no objeto do gráfico.');
+            return;
+        }
+
         elements.chartPlaceholder.style.display = 'none';
-        if (candleSeries) chart.removeSeries(candleSeries);
+        if (candleSeries) {
+            chart.removeSeries(candleSeries);
+        }
+
         candleSeries = chart.addCandlestickSeries({
             upColor: '#22C55E', downColor: '#EF4444', borderDownColor: '#EF4444',
             borderUpColor: '#22C55E', wickDownColor: '#EF4444', wickUpColor: '#22C55E',
         });
         candleSeries.setData(ohlcData);
+
         const markers = trades.map(trade => ({
             time: new Date(trade.data_entrada).getTime() / 1000,
             position: estrategia === 'compra' ? 'belowBar' : 'aboveBar',
@@ -195,11 +223,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             
             const data = await response.json();
-            // CORREÇÃO: Verifica se a resposta contém a chave 'error'
-            if (!response.ok || data.error) {
-                // Se houver um erro, lança-o para ser apanhado pelo bloco catch
-                throw new Error(data.error || 'Erro desconhecido no servidor.');
-            }
+            if (!response.ok) throw new Error(data.error || 'Erro no servidor.');
 
             currentBacktestData = data;
             populateUI(data);
@@ -216,7 +240,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const populateUI = (data) => {
-        // CORREÇÃO: Verifica se o objeto 'metricas' existe antes de tentar usá-lo
         if (!data.metricas) {
             displayError("A resposta do servidor não continha as métricas esperadas.");
             return;
