@@ -6,12 +6,13 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import pandas as pd
 
+# Agora importamos a versão correta das funções
 from backtest_logic import buscar_dados_api, detectar_sinais, executar_simulacao, calcular_metricas
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
 
-POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY', 'SUA_CHAVE_AQUI_PARA_TESTE_LOCAL')
+# A chave da Polygon já não é necessária para o backtest, mas mantemos a da Gemini
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', 'SUA_CHAVE_AQUI_PARA_TESTE_LOCAL')
 
 def create_analysis_prompt(metricas, trades):
@@ -28,7 +29,7 @@ def create_analysis_prompt(metricas, trades):
     {trades_str}
 
     **Sua Análise:**
-    Com base nos dados, forneça uma análise em 3 partes, usando Markdown:
+    Com base nos dados acima, forneça uma análise em 3 partes, usando Markdown:
     1.  **### Diagnóstico Geral:** Resuma o desempenho. Foi lucrativo? Consistente?
     2.  **### Pontos Fortes:** Identifique os aspectos positivos.
     3.  **### Pontos de Melhoria e Riscos:** Aponte as fraquezas e sugira otimizações.
@@ -58,9 +59,11 @@ def handle_backtest_request():
         if not all([ativo, data_inicio, data_fim]):
             return jsonify({"error": "Parâmetros 'ativo', 'data_inicio' e 'data_fim' são obrigatórios."}), 400
 
-        dados_historicos = buscar_dados_api(ativo, 'day', data_inicio, data_fim, POLYGON_API_KEY)
+        # CORREÇÃO: A chamada para buscar_dados_api agora tem 3 argumentos, sem a chave de API.
+        dados_historicos = buscar_dados_api(ativo, '1d', data_inicio, data_fim)
+        
         if dados_historicos is None or dados_historicos.empty:
-            return jsonify({"error": "Não foi possível obter dados históricos."}), 404
+            return jsonify({"error": "Não foi possível obter dados históricos com yfinance. Verifique o ticker do ativo."}), 404
 
         sinais_df = detectar_sinais(dados_historicos, estrategia)
         if sinais_df.empty:
@@ -72,7 +75,9 @@ def handle_backtest_request():
         historico_formatado = [{"time": int(index.timestamp()), "open": row['open'], "high": row['high'], "low": row['low'], "close": row['close']} for index, row in dados_historicos.iterrows()]
         
         resultados_df['data_entrada'] = pd.to_datetime(resultados_df['data_entrada']).astype(str)
-        resultados_df['data_saida'] = pd.to_datetime(resultados_df['data_saida']).astype(str)
+        if 'data_saida' in resultados_df.columns:
+            resultados_df['data_saida'] = pd.to_datetime(resultados_df['data_saida']).astype(str)
+        
         trades_detalhados = resultados_df.to_dict(orient='records')
 
         return jsonify({
