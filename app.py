@@ -59,7 +59,7 @@ def handle_backtest_request():
 
         dados_historicos = buscar_dados_api(ativo, data_inicio, data_fim)
         if dados_historicos is None or dados_historicos.empty:
-            return jsonify({"error": "Não foi possível obter dados históricos."}), 404
+            return jsonify({"error": "Não foi possível obter dados históricos com yfinance. Verifique o ticker do ativo."}), 404
 
         sinais_df = detectar_sinais(dados_historicos, estrategia)
         if sinais_df.empty:
@@ -71,7 +71,9 @@ def handle_backtest_request():
         historico_formatado = [{"time": int(index.timestamp()), "open": row['open'], "high": row['high'], "low": row['low'], "close": row['close']} for index, row in dados_historicos.iterrows()]
         
         resultados_df['data_entrada'] = pd.to_datetime(resultados_df['data_entrada']).astype(str)
-        resultados_df['data_saida'] = pd.to_datetime(resultados_df['data_saida']).astype(str)
+        if 'data_saida' in resultados_df.columns:
+            resultados_df['data_saida'] = pd.to_datetime(resultados_df['data_saida']).astype(str)
+        
         trades_detalhados = resultados_df.to_dict(orient='records')
 
         return jsonify({
