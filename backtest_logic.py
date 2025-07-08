@@ -104,24 +104,44 @@ def executar_simulacao(df_historico, df_sinais, tipo_operacao):
     return pd.DataFrame(resultados)
 
 def calcular_metricas(resultados_df, lotes, valor_por_ponto):
-    if resultados_df.empty or 'resultado' not in resultados_df.columns:
-        return {}
+    """Calcula as métricas de performance do backtest de forma robusta."""
+    
+    metricas_zeradas = {
+        "totalOperacoes": 0,
+        "tradesVencedores": 0,
+        "tradesPerdedores": 0,
+        "taxaAcerto": "0.00%",
+        "lucroBrutoTotal": "$ 0.00",
+        "riscoRetorno": "N/A",
+        "drawdownMaximo": "$ 0.00"
+    }
+
+    if resultados_df is None or resultados_df.empty or 'resultado' not in resultados_df.columns:
+        return metricas_zeradas
+
     trades_finalizados = resultados_df[resultados_df['resultado'] != 'Aberto'].copy()
-    if trades_finalizados.empty: return { "totalOperacoes": 0 }
+    if trades_finalizados.empty:
+        return metricas_zeradas
+
     trades_finalizados['pnl_financeiro'] = trades_finalizados.apply(
         lambda row: (abs(row['preco_saida'] - row['preco_entrada']) if row['resultado'] == 'Gain' else -abs(row['preco_saida'] - row['preco_entrada'])) * lotes * valor_por_ponto, axis=1
     )
+    
     total_trades = len(trades_finalizados)
     trades_gain = trades_finalizados[trades_finalizados['resultado'] == 'Gain']
     trades_loss = trades_finalizados[trades_finalizados['resultado'] == 'Loss']
+    
     taxa_acerto = (len(trades_gain) / total_trades) * 100 if total_trades > 0 else 0
     lucro_bruto = trades_finalizados['pnl_financeiro'].sum()
+    
     media_gain = trades_gain['pnl_financeiro'].mean() if not trades_gain.empty else 0
     media_loss = abs(trades_loss['pnl_financeiro'].mean()) if not trades_loss.empty else 0
     risco_retorno = (media_gain / media_loss) if media_loss != 0 else float('inf')
+
     equity_curve = trades_finalizados['pnl_financeiro'].cumsum()
     pico_anterior = equity_curve.cummax()
-    drawdown_financeiro = (pico_anterior - equity_curve).max()
+    drawdown_financeiro = (pico_anterior - equity_curve).max() if not equity_curve.empty else 0
+
     return {
         "totalOperacoes": total_trades,
         "tradesVencedores": len(trades_gain),
