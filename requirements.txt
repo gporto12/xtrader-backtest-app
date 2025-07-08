@@ -2,6 +2,7 @@ Flask
 Flask-Cors
 pandas
 numpy==1.23.5
+requests
 gunicorn
 pandas-ta
 setuptools>=42
