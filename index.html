@@ -196,9 +196,8 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             
             const data = await response.json();
-            // CORREÇÃO: Verifica se a resposta contém a chave 'error'
-            if (!response.ok || data.error) {
-                throw new Error(data.error || 'Erro desconhecido no servidor.');
+            if (response.status !== 200 || data.error) {
+                 throw new Error(data.error || 'Erro no servidor.');
             }
 
             currentBacktestData = data;
@@ -216,7 +215,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const populateUI = (data) => {
-        // CORREÇÃO: Verifica se o objeto 'metricas' existe antes de tentar usá-lo
         if (!data.metricas) {
             displayError("A resposta do servidor não continha as métricas esperadas.");
             return;
