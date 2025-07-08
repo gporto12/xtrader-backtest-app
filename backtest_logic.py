@@ -1,26 +1,28 @@
 import pandas as pd
 import numpy as np
-import requests
+import yfinance as yf
 import pandas_ta as ta
 
-def buscar_dados_api(ativo, timeframe, data_inicio, data_fim, api_key):
-    """Busca dados históricos da API da Polygon.io."""
-    print(f"Buscando dados para {ativo} de {data_inicio} a {data_fim}...")
-    API_URL = f"https://api.polygon.io/v2/aggs/ticker/{ativo}/range/1/{timeframe}/{data_inicio}/{data_fim}"
-    params = {'adjusted': 'true', 'sort': 'asc', 'limit': 50000, 'apiKey': api_key}
+def buscar_dados_api(ativo, data_inicio, data_fim):
+    """Busca dados históricos usando a biblioteca yfinance."""
+    print(f"Buscando dados para {ativo} de {data_inicio} a {data_fim} via yfinance...")
     try:
-        response = requests.get(API_URL, params=params)
-        response.raise_for_status()
-        data = response.json()
-        if not data.get('results'):
+        ticker = yf.Ticker(ativo)
+        df = ticker.history(start=data_inicio, end=data_fim, interval="1d")
+
+        if df.empty:
+            print("Nenhum dado retornado pelo yfinance.")
             return None
-        df = pd.DataFrame(data['results'])
-        df['datetime'] = pd.to_datetime(df['t'], unit='ms')
-        df.rename(columns={'o': 'open', 'h': 'high', 'l': 'low', 'c': 'close', 'v': 'volume'}, inplace=True)
-        df.set_index('datetime', inplace=True)
+        
+        df.rename(columns={
+            "Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"
+        }, inplace=True)
+
+        print(f"Dados carregados com sucesso! Total de {len(df)} candles.")
         return df[['open', 'high', 'low', 'close', 'volume']]
-    except requests.exceptions.RequestException as e:
-        print(f"Erro ao chamar a API da Polygon: {e}")
+        
+    except Exception as e:
+        print(f"Erro ao buscar dados com yfinance: {e}")
         return None
 
 def detectar_sinais(df, tipo_estrategia):
@@ -37,10 +39,8 @@ def detectar_sinais(df, tipo_estrategia):
     sinais = []
     estado = "AGUARDANDO_REVERSAO"
     
-    # --- CORREÇÃO DEFINITIVA: Lógica de cruzamento robusta que evita erros de tipo ---
     df['MME20_acima_MME50'] = df['MME20'] > df['MME50']
     df['MME20_estava_acima_MME50'] = df['MME20_acima_MME50'].shift(1)
-    
     df['cruzou_para_cima'] = (df['MME20_acima_MME50'] == True) & (df['MME20_estava_acima_MME50'] == False)
     df['cruzou_para_baixo'] = (df['MME20_acima_MME50'] == False) & (df['MME20_estava_acima_MME50'] == True)
 
